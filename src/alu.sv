@@ -28,5 +28,4 @@ module alu(
 
     assign  equal = !(|(a ^ b));
 
-
 endmodule
