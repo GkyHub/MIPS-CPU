@@ -36,4 +36,18 @@ package MIPS_DEF;
     localparam FUNC_SRAV    = 6'b000111;
     localparam FUNC_JR      = 6'b001000;
 
+    // alu function code
+    typedef enum {
+        ALU_ADD,
+        ALU_SUB,
+        ALU_CMP,
+        ALU_AND,
+        ALU_OR,
+        ALU_XOR,
+        ALU_NOR,
+        ALU_SL,
+        ALU_SR,
+    } aluop_t;
+    
+
 endpackage

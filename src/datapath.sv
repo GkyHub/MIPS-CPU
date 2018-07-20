@@ -17,7 +17,6 @@ module datapath (
 
     // register definitions
     reg     [32 -1 : 0] pc_r;
-
     // IF registers
     reg     [32 -1 : 0] IF_ins_r;
     // ID registers
@@ -28,8 +27,16 @@ module datapath (
     reg                 ID_mem_wr_r;
     reg                 ID_mem_rd_r;
     reg     [32 -1 : 0] ID_imm_r;
+    reg     [2  -1 : 0] ID_func_sel_r;
+    reg     [2  -1 : 0] ID_logic_ctrl_r;
+    reg     [2  -1 : 0] ID_shift_ctrl_r;
+    reg     [2  -1 : 0] ID_arith_ctrl_r;
     // EX registers
-
+    reg     [5  -1 : 0] EX_rd_addr_a_r, EX_rd_addr_b_r;
+    reg     [5  -1 : 0] EX_wr_addr_r;
+    reg                 EX_wr_en_r;
+    reg                 EX_mem_wr_r;
+    reg                 EX_mem_rd_r;
     // MEM registers
     reg                 MEM_wr_en_r;
     reg     [5  -1 : 0] MEM_wr_addr_r;
@@ -56,98 +63,28 @@ module datapath (
 //=============================================================================
 
     reg     [32 -1 : 0] reg_file[31:1];         // register file
-    wire    [5  -1 : 0] rd_addr_a, rd_addr_b;   // register read address
+    wire    [5  -1 : 0] ID_rd_addr_a, ID_rd_addr_b;   // register read address
     wire    [5  -1 : 0] wr_addr;                // register write address
     wire    sign_ext;
-    
-    // decode read register address
-    assign  rd_addr_a = IF_ins_r[`RS];
-    assign  rd_addr_b = IF_ins_r[`RT];
 
-    always @ (posedge clk) begin
-        ID_rd_addr_a_r <= rd_addr_a;
-        ID_rd_addr_b_r <= rd_addr_b;
-    end
-
-    // decode write register address
-    always @ (posedge clk) begin
-        if (rst) begin
-            ID_wr_addr_r <= 5'd0;
-        end
-        else begin
-            unique case (IF_ins_r[`OPCODE])
-            OP_RTYPE: ID_wr_addr_r <= IF_ins_r[`RD];
-            OP_ADDI:  ID_wr_addr_r <= IF_ins_r[`RT];
-            OP_ADDIU: ID_wr_addr_r <= IF_ins_r[`RT];
-            OP_ORI:   ID_wr_addr_r <= IF_ins_r[`RT];
-            OP_XORI:  ID_wr_addr_r <= IF_ins_r[`RT];
-            OP_LUI:   ID_wr_addr_r <= IF_ins_r[`RT];
-            OP_LW:    ID_wr_addr_r <= IF_ins_r[`RT];
-            OP_SW:    ID_wr_addr_r <= 'bx;
-            OP_BEQ:   ID_wr_addr_r <= 'bx;
-            OP_BNE:   ID_wr_addr_r <= 'bx;
-            OP_SLTI:  ID_wr_addr_r <= IF_ins_r[`RT];
-            OP_SLTIU: ID_wr_addr_r <= IF_ins_r[`RT];
-            OP_J:     ID_wr_addr_r <= 'bx;
-            OP_JAL:   ID_wr_addr_r <= 5'd31;
-            endcase
-        end
-    end
-
-    // decode register write enable signal
-    always @ (posedge clk) begin
-        if (rst_n) begin
-            ID_wr_en_r <= 1'b0;
-        end
-        else begin
-            unique case (IF_ins_r[`OPCODE])
-            OP_RTYPE: ID_wr_en_r <= 1'b1;   // since the rd of jr is 0, wr_en can be 1
-            OP_ADDI:  ID_wr_en_r <= 1'b1;
-            OP_ADDIU: ID_wr_en_r <= 1'b1;
-            OP_ORI:   ID_wr_en_r <= 1'b1;
-            OP_XORI:  ID_wr_en_r <= 1'b1;
-            OP_LUI:   ID_wr_en_r <= 1'b1;
-            OP_LW:    ID_wr_en_r <= 1'b1;
-            OP_SW:    ID_wr_en_r <= 1'b0;
-            OP_BEQ:   ID_wr_en_r <= 1'b0;
-            OP_BNE:   ID_wr_en_r <= 1'b0;
-            OP_SLTI:  ID_wr_en_r <= 1'b1;
-            OP_SLTIU: ID_wr_en_r <= 1'b1;
-            OP_J:     ID_wr_en_r <= 1'b0;   
-            OP_JAL:   ID_wr_en_r <= 1'b1;
-            endcase
-        end        
-    end
-
-    // decode R/W mem signal
-    always @ (posedge clk) begin
-        if (rst_n) begin
-            ID_mem_rd_r <= 1'b0;
-            ID_mem_wr_r <= 1'b0;
-        end 
-        else begin
-            ID_mem_rd_r <= (IF_ins_r == OP_LUI) || (IF_ins_r == )
-        end
-    end
+    // decode instruction
 
     // read operators from registers
     always @ (posedge clk) begin
-        if (rd_addr_a == 5'd0) begin
+        if (ID_rd_addr_a == 5'd0) begin
             ID_op_a_r <= 32'd0;
         end
         else begin
-            ID_op_a_r <= reg_file[rd_addr_a];
+            ID_op_a_r <= reg_file[ID_rd_addr_a];
         end
 
-        if (rd_addr_b == 5'd0) begin
+        if (ID_rd_addr_b == 5'd0) begin
             ID_op_b_r <= 32'd0;
         end
         else begin
-            ID_op_b_r <= reg_file[rd_addr_b];
+            ID_op_b_r <= reg_file[ID_rd_addr_b];
         end
-    end
-    
-    
+    end    
 
     // extend immediate number
     wire    [16 -1 : 0] imm = IF_ins_r[`IMM];
@@ -157,8 +94,40 @@ module datapath (
     end
 
 //=============================================================================
-// ID stage
+// EX stage
 //=============================================================================
+    wire    [32 -1 : 0] EX_op_a, EX_op_b;
+    wire    [32 -1 : 0] EX_c;
+    wire    EX_overflow, EX_equal;
+
+    // select input
+    always_comb begin
+
+    end
+
+    // ALU operation
+    alu alu_inst(
+        .func_sel   (ID_func_sel_r  ),
+        .logic_ctrl (ID_logic_ctrl_r),
+        .shift_ctrl (ID_shift_ctrl_r),
+        .arith_ctrl (ID_arith_ctrl_r),           
+
+        .a          (EX_op_a        ),
+        .b          (EX_op_b        ),
+        .c          (EX_op_c        ),
+        .overflow   (EX_overflow    ),
+        .equal      (EX_equal       )
+    );
+
+    // pass the control signals
+    always @ (posedge clk) begin
+        EX_rd_addr_a_r  <= ID_rd_addr_a_r;
+        EX_rd_addr_b_r  <= ID_rd_addr_b_r;
+        EX_wr_addr_r    <= ID_wr_addr_r;
+        EX_wr_en_r      <= ID_wr_en_r;
+        EX_mem_rd_r     <= ID_mem_rd_r;
+        EX_mem_wr_r     <= ID_mem_wr_r;
+    end
 
 //=============================================================================
 // WB stage

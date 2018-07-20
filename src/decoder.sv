@@ -3,21 +3,23 @@ import MIPS_DEF::*;
 module decoder(
     input   [32 -1 : 0] ins,
 
-    output  [5  -1 : 0] rd_addr_a,
-    output  [5  -1 : 0] rd_addr_b,
-    output  [5  -1 : 0] wr_addr,
-    output              reg_wr,
-    output              mem_rd,
-    output              mem_wr,
-    output              branch,
+    output      [5  -1 : 0] rd_addr_a,
+    output      [5  -1 : 0] rd_addr_b,
+    output  reg [5  -1 : 0] wr_addr,
+    output  reg             reg_wr,
+    output  reg             mem_rd,
+    output  reg             mem_wr,
+    output  reg             branch,
+    output  reg aluop_t     aluop,
+    output  reg             sign,
 
-    output  [16 -1 : 0] imm,
-    output  [26 -1 : 0] addr
+    output      [5  -1 : 0] shamt,
+    output      [16 -1 : 0] imm,        // immediate data
+    output      [26 -1 : 0] addr        // jump address
     );
 
     wire    [6  -1 : 0] opcode;
     wire    [5  -1 : 0] rs, rt, rd;
-    wire    [5  -1 : 0] shamt;
     wire    [6  -1 : 0] func;
 
     // disassembles members of instruction
@@ -71,9 +73,63 @@ module decoder(
         endcase 
     end
 
-    // branch
-    assign  branch = 
+    // alu control signals
+    wire    aluop_t func_alu_op;
 
+    always_comb begin
+        unique case (func)
+        FUNC_ADD : func_alu_op = ALU_ADD;
+        FUNC_ADDU: func_alu_op = ALU_ADD;
+        FUNC_SUB : func_alu_op = ALU_SUB;
+        FUNC_SUBU: func_alu_op = ALU_SUB;
+        FUNC_AND : func_alu_op = ALU_AND;
+        FUNC_OR  : func_alu_op = ALU_OR;
+        FUNC_XOR : func_alu_op = ALU_XOR;
+        FUNC_NOR : func_alu_op = ALU_NOR;
+        FUNC_SLT : func_alu_op = ALU_CMP;
+        FUNC_SLTU: func_alu_op = ALU_CMP;
+        FUNC_SLL : func_alu_op = ALU_SLL;
+        FUNC_SRL : func_alu_op = ALU_SRL;
+        FUNC_SRA : func_alu_op = ALU_SRA;
+        FUNC_SLLV: func_alu_op = ALU_SLL;
+        FUNC_SRLV: func_alu_op = ALU_SRL;
+        FUNC_SRAV: func_alu_op = ALU_SRA;
+        FUNC_JR  : func_alu_op = 'bx;
+        endcase
+    end
 
+    always_comb begin
+        unique case (opcode)
+        OP_RTYPE: aluop = func_alu_op;
+        OP_ADDI:  aluop = ALU_ADD;
+        OP_ADDIU: aluop = ALU_ADD;
+        OP_ORI:   aluop = ALU_OR;
+        OP_XORI:  aluop = ALU_XOR;
+        OP_LUI:   aluop = ALU_ADD;
+        OP_LW:    aluop = ALU_ADD;
+        OP_SW:    aluop = ALU_ADD;
+        OP_BEQ:   aluop = ALU_XOR;
+        OP_BNE:   aluop = ALU_XOR;
+        OP_SLTI:  aluop = ALU_CMP;
+        OP_SLTIU: aluop = ALU_CMP;
+        OP_J:     aluop = 'bx;
+        OP_JAL:   aluop = 'bx;
+        endcase
+    end
+
+    // sign signal (only for compare)
+    always_comb begin
+        case (opcode)
+        OP_RTYPE: begin
+            case (func)
+            FUNC_SLT:  sign = 1'b1;
+            FUNC_SLTU: sign = 1'b0;
+            endcase
+        end
+        OP_SLTI:  sign = 1'b1;
+        OP_SLTIU: sign = 1'b0;
+        default:  sign = 1'bx;
+        endcase
+    end
 
 endmodule
