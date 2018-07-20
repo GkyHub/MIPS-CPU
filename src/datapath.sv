@@ -10,7 +10,8 @@ module datapath (
 
     // memory port
     output  [32 -1 : 0] mem_addr,
-    input   [32 -1 : 0] mem_data,
+    output  [32 -1 : 0] mem_wr_data,
+    input   [32 -1 : 0] mem_rd_data,
     output              mem_rd,
     output              mem_wr
     );
@@ -51,6 +52,12 @@ module datapath (
 
     // WB registers (none)
 
+    // pc control signals
+    wire                ID_jump;
+    wire    [32 -1 : 0] ID_jump_pc;
+    reg                 EX_branch;
+    wire    [32 -1 : 0] EX_branch_pc;
+
     // stall and clear signal
     wire    IF_stall, IF_clear;
     wire    ID_stall, ID_clear;
@@ -76,10 +83,16 @@ module datapath (
         if (~rst_n) begin
             pc_r <= 32'h0000_0000;
         end
+        else if (EX_branch) begin
+            pc_r <= EX_branch_pc;
+        end
+        else if (ID_jump) begin
+            pc_r <= ID_jump_pc;
+        end
         else begin
             pc_r <= pc_r + 4;
         end
-    end
+    end    
 
 //=============================================================================
 // ID stage
@@ -94,14 +107,14 @@ module datapath (
     wire    aluop_t     ID_aluop;
     wire                ID_sign;
     wire    [32 -1 : 0] ID_ext_imm;   
-    wire                ID_use_imm;
-    wire                ID_jump;       
+    wire                ID_use_imm;      
     wire    [28 -1 : 0] ID_jump_addr;  
     wire    [2  -1 : 0] ID_branch;  
 
     // decode instruction
     decoder decoder_inst(
         .ins        (IF_ins_r       ),
+        .pc         (IF_pc_r        ),
 
         .rd_addr_a  (ID_rd_addr_a   ),
         .rd_addr_b  (ID_rd_addr_b   ),
@@ -114,7 +127,7 @@ module datapath (
         .ext_imm    (ID_ext_imm     ),                                       
         .use_imm    (ID_use_imm     ), 
         .jump       (ID_jump        ),       
-        .jump_addr  (ID_jump_addr   ),  
+        .jump_pc    (ID_jump_pc     ),  
         .branch     (ID_branch      ) 
     );
 
@@ -176,6 +189,8 @@ module datapath (
     reg     [32 -1 : 0] EX_reg_b;
     wire    [32 -1 : 0] EX_alu_data;
     wire    EX_overflow, EX_equal;
+    wire    [32 -1 : 0] EX_branch_pc;
+    reg                 EX_branch;
 
     // select input operator a
     always_comb begin
@@ -184,7 +199,7 @@ module datapath (
                 EX_op_a = EX_alu_data_r;
             end
             else if (MEM_wr_addr_r == ID_rd_addr_a_r && MEM_reg_wr_r) begin
-                EX_op_a = MEM_alu_data_r;
+                EX_op_a = MEM_mem_rd_r ? MEM_mem_data_r : MEM_alu_data_r;
             end
             else begin
                 EX_op_a = ID_op_a_r;
@@ -202,7 +217,7 @@ module datapath (
                 EX_reg_b = EX_alu_data_r;
             end
             else if (MEM_wr_addr_r == ID_rd_addr_b_r && MEM_reg_wr_r) begin
-                EX_reg_b = MEM_alu_data_r;
+                EX_reg_b = MEM_mem_rd_r ? MEM_mem_data_r : MEM_alu_data_r;
             end
             else begin
                 EX_reg_b = ID_op_b_r;
@@ -230,6 +245,19 @@ module datapath (
         .equal      (EX_equal       )
     );
 
+    // calculate the branch PC
+    assign EX_branch_pc = (ID_branch_r[1]) ? (ID_pc_r + (ext_imm[15:0] << 2)) : EX_op_b;
+
+    // set EX_branch
+    always_comb begin
+        case(ID_branch_r)
+        2'b00: EX_branch = 1'b0;
+        2'b01: EX_branch = 1'b1;
+        2'b10: EX_branch = EX_equal;
+        2'b11: EX_branch = !EX_equal;
+        endcase
+    end
+
     // pass the control signals
     always @ (posedge clk) begin
         if (!rst_n || !EX_clear) begin
@@ -254,13 +282,43 @@ module datapath (
     end
 
 //=============================================================================
+// MEM stage
+//=============================================================================
+    
+    assign  mem_addr    = EX_alu_data_r;
+    assign  mem_wr_data = EX_mem_data_r;
+    assign  mem_rd      = EX_mem_rd_r;
+    assign  mem_wr      = EX_mem_wr_r;
+
+    // pass the control signals
+    always @ (posedge clk) begin
+        if (!rst_n || !MEM_clear) begin
+            MEM_wr_addr_r <= 0;
+            MEM_reg_wr_r  <= 1'b0;
+            MEM_mem_rd_r  <= 1'b0;
+        end
+        else if (!MEM_stall) begin
+            MEM_wr_addr_r <= ID_wr_addr_r;
+            MEM_reg_wr_r  <= ID_reg_wr_r;
+            MEM_mem_rd_r  <= ID_mem_rd_r;
+        end
+    end
+
+    always @ (posedge clk) begin
+        if (!MEM_stall) begin
+            MEM_mem_data_r <= mem_rd_data;
+            MEM_alu_data_r <= EX_alu_data_r;
+        end
+    end
+
+//=============================================================================
 // WB stage
 //=============================================================================
     
     // write result back to register file
     always @ (posedge clk) begin
         if ((MEM_wr_addr_r != 0) && MEM_wr_en_r) begin
-            reg_file[MEM_wr_addr_r] <= MEM_wr_data_r;
+            reg_file[MEM_wr_addr_r] <= MEM_mem_rd_r ? MEM_mem_data_r : MEM_alu_data_r;
         end
     end
 

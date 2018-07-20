@@ -2,6 +2,7 @@ import MIPS_DEF::*;
 
 module decoder(
     input   [32 -1 : 0] ins,
+    input   [32 -1 : 0] pc,             // we only use the high 4 bit of pc
 
     output      [5  -1 : 0] rd_addr_a,
     output      [5  -1 : 0] rd_addr_b,
@@ -18,7 +19,7 @@ module decoder(
     output  reg             use_imm,    // if ALU use immediate data
 
     output                  jump,       // if unconditional jump in ID
-    output      [28 -1 : 0] jump_addr,  // jump target
+    output      [32 -1 : 0] jump_pc,    // jump target
     output  reg [2  -1 : 0] branch      // branch type in EX stage:
                                         // 00: no branch
                                         // 01: jr
@@ -180,7 +181,7 @@ module decoder(
     assign jump = (opcode == OP_J) || (opcode == OP_JAL);
 
     // get the jump target
-    assign jump_addr = {addr, 2'b00};
+    assign jump_pc = {pc[31:28], addr, 2'b00};
 
     // judge if branch on EX stage
     always_comb begin
