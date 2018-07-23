@@ -4,6 +4,8 @@ module decoder(
     input   [32 -1 : 0] ins,
     input   [32 -1 : 0] pc,             // we only use the high 4 bit of pc
 
+    output                  badop,      // bad opcode exception
+
     output      [5  -1 : 0] rd_addr_a,
     output      [5  -1 : 0] rd_addr_b,
     output  reg [5  -1 : 0] wr_addr,
@@ -13,6 +15,8 @@ module decoder(
     output  reg aluop_t     aluop,
     output  reg             sign,       // 1: signed operator
                                         // 0: unsigned operator
+    output  reg             overflow,   // 1: treat overflow as exception
+                                        // 0: not care overflow
 
     output  reg [32 -1 : 0] ext_imm,    // extended immediate data
                                         // shamt for shift operation
@@ -37,6 +41,27 @@ module decoder(
     assign  imm  = ins[15: 0];
     assign  addr = ins[25: 0];
 
+    // check opcode
+    always_comb begin
+        case(opcode)
+        OP_RTYPE: badop = 1'b0;
+        OP_ADDI:  badop = 1'b0;
+        OP_ADDIU: badop = 1'b0;
+        OP_ORI:   badop = 1'b0;
+        OP_XORI:  badop = 1'b0;
+        OP_LUI:   badop = 1'b0;
+        OP_LW:    badop = 1'b0;
+        OP_SW:    badop = 1'b0;
+        OP_BEQ:   badop = 1'b0;
+        OP_BNE:   badop = 1'b0;
+        OP_SLTI:  badop = 1'b0;
+        OP_SLTIU: badop = 1'b0;
+        OP_J:     badop = 1'b0;
+        OP_JAL:   badop = 1'b0;
+        default:  badop = 1'b1;
+        endcase
+    end
+
     // generate control signals
 
     // read address
@@ -46,20 +71,20 @@ module decoder(
     // write address and enable
     always_comb begin
         unique case(opcode)
-        OP_RTYPE: begin wr_addr = rd;    reg_wr = 1'b1; end
-        OP_ADDI:  begin wr_addr = rt;    reg_wr = 1'b1; end
-        OP_ADDIU: begin wr_addr = rt;    reg_wr = 1'b1; end
-        OP_ORI:   begin wr_addr = rt;    reg_wr = 1'b1; end
-        OP_XORI:  begin wr_addr = rt;    reg_wr = 1'b1; end
-        OP_LUI:   begin wr_addr = rt;    reg_wr = 1'b1; end
-        OP_LW:    begin wr_addr = rt;    reg_wr = 1'b1; end
-        OP_SW:    begin wr_addr = 'bx;   reg_wr = 1'b0; end
-        OP_BEQ:   begin wr_addr = 'bx;   reg_wr = 1'b0; end
-        OP_BNE:   begin wr_addr = 'bx;   reg_wr = 1'b0; end
-        OP_SLTI:  begin wr_addr = rt;    reg_wr = 1'b1; end
-        OP_SLTIU: begin wr_addr = rt;    reg_wr = 1'b1; end
-        OP_J:     begin wr_addr = 'bx;   reg_wr = 1'b0; end
-        OP_JAL:   begin wr_addr = 5'd31; reg_wr = 1'b1; end
+        OP_RTYPE: begin wr_addr = rd;   reg_wr = 1'b1; end
+        OP_ADDI:  begin wr_addr = rt;   reg_wr = 1'b1; end
+        OP_ADDIU: begin wr_addr = rt;   reg_wr = 1'b1; end
+        OP_ORI:   begin wr_addr = rt;   reg_wr = 1'b1; end
+        OP_XORI:  begin wr_addr = rt;   reg_wr = 1'b1; end
+        OP_LUI:   begin wr_addr = rt;   reg_wr = 1'b1; end
+        OP_LW:    begin wr_addr = rt;   reg_wr = 1'b1; end
+        OP_SW:    begin wr_addr = 'bx;  reg_wr = 1'b0; end
+        OP_BEQ:   begin wr_addr = 'bx;  reg_wr = 1'b0; end
+        OP_BNE:   begin wr_addr = 'bx;  reg_wr = 1'b0; end
+        OP_SLTI:  begin wr_addr = rt;   reg_wr = 1'b1; end
+        OP_SLTIU: begin wr_addr = rt;   reg_wr = 1'b1; end
+        OP_J:     begin wr_addr = 'bx;  reg_wr = 1'b0; end
+        OP_JAL:   begin wr_addr = RA;   reg_wr = 1'b1; end
         endcase 
     end
 
@@ -123,7 +148,7 @@ module decoder(
         OP_SLTI:  aluop = ALU_CMP;
         OP_SLTIU: aluop = ALU_CMP;
         OP_J:     aluop = 'bx;
-        OP_JAL:   aluop = 'bx;
+        OP_JAL:   aluop = ALU_ADD;
         endcase
     end
 
@@ -147,6 +172,16 @@ module decoder(
         endcase
     end
 
+    // overflow detection sigal
+    always_comb begin
+        if (opcode == OP_RTYPE) begin
+            overflow = (func == FUNC_ADD) || (func == FUNC_SUB);
+        end
+        else begin
+            overflow = (opcode == OP_ADDI);
+        end
+    end
+
     // extend immediate data
     always_comb begin
         unique case(opcode)
@@ -158,22 +193,22 @@ module decoder(
         OP_LUI:   ext_imm = {imm, 16'd0};
         OP_LW:    ext_imm = {{16{imm[15]}}, imm};
         OP_SW:    ext_imm = {{16{imm[15]}}, imm};
-        OP_BEQ:   ext_imm = ALU_XOR;
-        OP_BNE:   ext_imm = ALU_XOR;
+        OP_BEQ:   ext_imm = {{16{imm[15]}}, imm};
+        OP_BNE:   ext_imm = {{16{imm[15]}}, imm};
         OP_SLTI:  ext_imm = {{16{imm[15]}}, imm};
         OP_SLTIU: ext_imm = {{16{imm[15]}}, imm};
         OP_J:     ext_imm = 'bx;
-        OP_JAL:   ext_imm = 'bx;
+        OP_JAL:   ext_imm = pc;
         endcase
     end
 
     // judge if immediate data is used
     always_comb begin
         if (opcode == OP_RTYPE) begin
-            use_imm = (func[5:4] == 2'b00);
+            use_imm = (func == FUNC_SLL) || (func == FUNC_SRL);
         end
         else begin
-            use_imm = !((opcode == OP_J) || (opcode == OP_JAL));
+            use_imm = (opcode != OP_J);
         end
     end
 

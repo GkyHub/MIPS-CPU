@@ -32,6 +32,7 @@ module datapath (
     reg                 ID_mem_wr_r;
     reg     aluop_t     ID_aluop_r;
     reg                 ID_sign_r;
+    reg                 ID_overflow_r;
     reg     [32 -1 : 0] ID_ext_imm_r;   
     reg                 ID_use_imm_r;
     reg     [2  -1 : 0] ID_branch_r;
@@ -53,6 +54,7 @@ module datapath (
     // WB registers (none)
 
     // pc control signals
+    wire                exception;
     wire                ID_jump;
     wire    [32 -1 : 0] ID_jump_pc;
     reg                 EX_branch;
@@ -83,6 +85,9 @@ module datapath (
         if (~rst_n) begin
             pc_r <= 32'h0000_0000;
         end
+        else if (exception) begin
+            pc_r <= 32'h8000_0000;
+        end
         else if (EX_branch) begin
             pc_r <= EX_branch_pc;
         end
@@ -98,6 +103,7 @@ module datapath (
 // ID stage
 //=============================================================================
 
+    wire                ID_badop;
     wire    [5  -1 : 0] ID_rd_addr_a;
     wire    [5  -1 : 0] ID_rd_addr_b;
     wire    [5  -1 : 0] ID_wr_addr;
@@ -106,6 +112,7 @@ module datapath (
     wire                ID_mem_wr;
     wire    aluop_t     ID_aluop;
     wire                ID_sign;
+    wire                ID_overflow;
     wire    [32 -1 : 0] ID_ext_imm;   
     wire                ID_use_imm;      
     wire    [28 -1 : 0] ID_jump_addr;  
@@ -116,6 +123,7 @@ module datapath (
         .ins        (IF_ins_r       ),
         .pc         (IF_pc_r        ),
 
+        .badop      (ID_badop       ),
         .rd_addr_a  (ID_rd_addr_a   ),
         .rd_addr_b  (ID_rd_addr_b   ),
         .wr_addr    (ID_wr_addr     ),
@@ -124,6 +132,7 @@ module datapath (
         .mem_wr     (ID_mem_wr      ),
         .aluop      (ID_aluop       ),
         .sign       (ID_sign        ),
+        .overflow   (ID_overflow    ),
         .ext_imm    (ID_ext_imm     ),                                       
         .use_imm    (ID_use_imm     ), 
         .jump       (ID_jump        ),       
@@ -154,18 +163,20 @@ module datapath (
     // these should be cleared and reset
     always @ (posedge clk) begin
         if (~rst_n || ID_clear) begin
-            ID_wr_addr_r <= '0;
-            ID_reg_wr_r  <= '0;
-            ID_mem_rd_r  <= '0;
-            ID_mem_wr_r  <= '0;
-            ID_branch_r  <= '0;
+            ID_wr_addr_r    <= '0;
+            ID_reg_wr_r     <= '0;
+            ID_overflow_r   <= '0;
+            ID_mem_rd_r     <= '0;
+            ID_mem_wr_r     <= '0;
+            ID_branch_r     <= '0;
         end
         else (!ID_stall) begin
-            ID_wr_addr_r <= ID_wr_addr;
-            ID_reg_wr_r  <= ID_reg_wr;
-            ID_mem_rd_r  <= ID_mem_rd;
-            ID_mem_wr_r  <= ID_mem_wr;
-            ID_branch_r  <= ID_branch;
+            ID_wr_addr_r    <= ID_wr_addr;
+            ID_reg_wr_r     <= ID_reg_wr;
+            ID_overflow_r   <= ID_overflow;
+            ID_mem_rd_r     <= ID_mem_rd;
+            ID_mem_wr_r     <= ID_mem_wr;
+            ID_branch_r     <= ID_branch;
         end
     end
 
@@ -322,5 +333,21 @@ module datapath (
         end
     end
 
+//=============================================================================
+// flush and control of the pipeline
+//=============================================================================
+
+    wire    exc_overflow = EX_overflow && ID_overflow_r;
+    wire    exc_badop    = ID_badop;
+
+    assign  IF_clear = EX_branch || ID_jump || exc_badop || exc_overflow;
+    assign  ID_clear = EX_branch || ID_badop;
+    assign  EX_clear = EX_overflow;
+    assign  MEM_clear = 1'b0;
+    
+    assign  IF_stall = 1'b0;
+    assign  ID_stall = 1'b0;
+    assign  EX_stall = 1'b0;
+    assign  MEM_stall = 1'b0;
 
 endmodule
